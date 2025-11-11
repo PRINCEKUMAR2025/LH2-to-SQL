@@ -50,6 +50,7 @@ class Candidate(Base):
     skills = relationship("Skill", back_populates="candidate")
     languages = relationship("Language", back_populates="candidate")
     websites = relationship("Website", back_populates="candidate")
+    years_of_experience = relationship("YearsOfExperience", back_populates="candidate")
 
 class Education(Base):
     __tablename__ = 'education'
@@ -131,6 +132,17 @@ class Website(Base):
     
     # Relationship
     candidate = relationship("Candidate", back_populates="websites")
+
+class YearsOfExperience(Base):
+    __tablename__ = 'yearofexp'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    candidate_id = Column(Integer, ForeignKey('candidate.candidate_id'))
+    total_years_experience = Column(Double)
+    calculated_date = Column(DateTime, default=datetime.now)
+    
+    # Relationship
+    candidate = relationship("Candidate", back_populates="years_of_experience")
 
 # Create engine and session
 engine = create_engine(DATABASE_URL_WITH_SSL)

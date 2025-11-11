@@ -1,0 +1,1 @@
+upload your csv file in this folder then run python main.py your_file_name.csv

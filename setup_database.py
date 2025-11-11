@@ -102,7 +102,7 @@ def create_tables():
         
         # Verify tables exist
         with engine.connect() as conn:
-            tables = ['candidate', 'education', 'experience', 'skills', 'projects']
+            tables = ['candidate', 'education', 'experience', 'skills', 'projects', 'languages', 'websites', 'yearofexp']
             for table in tables:
                 result = conn.execute(text(f"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{table}');"))
                 exists = result.fetchone()[0]

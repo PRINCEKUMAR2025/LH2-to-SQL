@@ -3,7 +3,7 @@ import numpy as np
 from datetime import datetime, date
 import re
 from typing import List, Dict, Any, Optional
-from models import Candidate, Education, Experience, Project, Skill, Language, Website, SessionLocal
+from models import Candidate, Education, Experience, Project, Skill, Language, Website, YearsOfExperience, SessionLocal
 import logging
 
 # Set up logging
@@ -37,37 +37,61 @@ class LinkedInCSVParser:
             return None
         
         try:
-            # Handle various date formats
-            if isinstance(date_str, str):
-                # Remove extra spaces and common prefixes
-                date_str = date_str.strip()
-                
-                # Try different date formats
-                date_formats = [
-                    '%Y-%m-%d',
-                    '%m/%d/%Y',
-                    '%d/%m/%Y',
-                    '%Y/%m/%d',
-                    '%m-%d-%Y',
-                    '%d-%m-%Y',
-                    '%b %Y',
-                    '%B %Y',
-                    '%Y',
-                    '%m/%Y',
-                    '%Y/%m'
-                ]
-                
-                for fmt in date_formats:
-                    try:
-                        return datetime.strptime(date_str, fmt).date()
-                    except ValueError:
-                        continue
-                
-                # If no format matches, try to extract year only
-                year_match = re.search(r'\b(19|20)\d{2}\b', date_str)
-                if year_match:
-                    return datetime.strptime(year_match.group(), '%Y').date()
+            # Convert to string and strip whitespace
+            date_str = str(date_str).strip()
             
+            if not date_str or date_str == 'nan':
+                return None
+            
+            # Special handling for YYYY.MM format (LinkedIn format) - check this FIRST
+            if '.' in date_str:
+                parts = date_str.split('.')
+                if len(parts) == 2 and len(parts[0]) == 4 and len(parts[1]) in [1, 2]:
+                    try:
+                        year = parts[0]
+                        month = parts[1].zfill(2)  # Ensure month is 2 digits
+                        # Validate month
+                        month_int = int(month)
+                        if 1 <= month_int <= 12:
+                            # Create date as first day of the month
+                            parsed_date = datetime.strptime(f"{year}-{month}-01", '%Y-%m-%d').date()
+                            logger.debug(f"Successfully parsed YYYY.MM date: {date_str} -> {parsed_date}")
+                            return parsed_date
+                    except (ValueError, IndexError) as e:
+                        logger.debug(f"Failed to parse YYYY.MM format: {date_str}, error: {e}")
+                        pass  # If YYYY.MM parsing fails, try other formats
+            
+            # Try different date formats
+            date_formats = [
+                '%Y-%m-%d',
+                '%m/%d/%Y',
+                '%d/%m/%Y',
+                '%Y/%m/%d',
+                '%m-%d-%Y',
+                '%d-%m-%Y',
+                '%b %Y',
+                '%B %Y',
+                '%Y',
+                '%m/%Y',
+                '%Y/%m'
+            ]
+            
+            for fmt in date_formats:
+                try:
+                    parsed_date = datetime.strptime(date_str, fmt).date()
+                    logger.debug(f"Successfully parsed date: {date_str} -> {parsed_date} (format: {fmt})")
+                    return parsed_date
+                except ValueError:
+                    continue
+            
+            # If no format matches, try to extract year only
+            year_match = re.search(r'\b(19|20)\d{2}\b', date_str)
+            if year_match:
+                parsed_date = datetime.strptime(year_match.group(), '%Y').date()
+                logger.debug(f"Successfully parsed year-only date: {date_str} -> {parsed_date}")
+                return parsed_date
+            
+            logger.warning(f"Could not parse date: {date_str} - no matching format found")
             return None
         except Exception as e:
             logger.warning(f"Could not parse date: {date_str}, error: {e}")
@@ -327,6 +351,15 @@ class LinkedInCSVParser:
         
         return website_objects
     
+    def create_years_of_experience_object(self, candidate_id: int, total_years: float) -> YearsOfExperience:
+        """Create YearsOfExperience object for a candidate"""
+        years_of_exp = YearsOfExperience(
+            candidate_id=candidate_id,
+            total_years_experience=total_years,
+            calculated_date=datetime.now()
+        )
+        return years_of_exp
+    
     def process_row(self, row: pd.Series) -> bool:
         """Process a single row from the CSV"""
         try:
@@ -346,6 +379,11 @@ class LinkedInCSVParser:
             experience_objects = self.create_experience_objects(candidate.candidate_id, experience_entries)
             for exp in experience_objects:
                 self.db.add(exp)
+            
+            # Calculate and store years of experience
+            total_years = self.calculate_experience_years(experience_entries)
+            years_of_exp_object = self.create_years_of_experience_object(candidate.candidate_id, total_years)
+            self.db.add(years_of_exp_object)
             
             # Extract and create skills
             skills_data = row.get('skills', '')
