@@ -208,23 +208,63 @@ class LinkedInCSVParser:
         
         return experience_entries
     
-    def calculate_experience_years(self, experience_entries: List[Dict[str, Any]]) -> float:
-        """Calculate total experience years from work history"""
+    def _education_periods(self, education_entries: List[Dict[str, Any]]) -> List[Dict[str, date]]:
+        """Normalize education date ranges for overlap checks"""
+        periods = []
+        for edu in education_entries:
+            start_date = edu.get('start_date')
+            end_date = edu.get('end_date')
+
+            if not start_date and not end_date:
+                continue
+
+            # Assume ongoing education runs until today if end_date missing
+            normalized_start = start_date or date.min
+            normalized_end = end_date or date.today()
+
+            if normalized_start <= normalized_end:
+                periods.append({'start': normalized_start, 'end': normalized_end})
+
+        return periods
+
+    def _overlaps_with_education(self, exp_start: date, exp_end: date, education_periods: List[Dict[str, date]]) -> bool:
+        """Determine whether an experience period overlaps with any education period"""
+        for period in education_periods:
+            edu_start = period['start']
+            edu_end = period['end']
+
+            # Overlap occurs when the latest start is <= earliest end
+            if max(exp_start, edu_start) <= min(exp_end, edu_end):
+                return True
+
+        return False
+
+    def calculate_experience_years(self, experience_entries: List[Dict[str, Any]], education_entries: List[Dict[str, Any]]) -> float:
+        """Calculate total experience years from work history with additional filters"""
         total_years = 0.0
+        six_months_in_days = 365.25 / 2  # Approximate 6 months
+        education_periods = self._education_periods(education_entries)
         
         for exp in experience_entries:
             start_date = exp.get('start_date')
-            end_date = exp.get('end_date')
-            
-            if start_date:
-                if end_date:
-                    # Calculate duration between start and end
-                    duration = (end_date - start_date).days / 365.25
-                else:
-                    # If no end date, calculate from start to current date
-                    duration = (date.today() - start_date).days / 365.25
-                
-                total_years += duration
+            end_date = exp.get('end_date') or date.today()
+
+            if not start_date:
+                continue
+
+            if end_date < start_date:
+                continue
+
+            duration_days = (end_date - start_date).days
+            if duration_days < six_months_in_days:
+                # Ignore experiences shorter than six months
+                continue
+
+            if education_periods and self._overlaps_with_education(start_date, end_date, education_periods):
+                # Skip experience periods that overlap with any education period
+                continue
+
+            total_years += duration_days / 365.25
         
         return round(total_years, 1)
     
@@ -381,7 +421,7 @@ class LinkedInCSVParser:
                 self.db.add(exp)
             
             # Calculate and store years of experience
-            total_years = self.calculate_experience_years(experience_entries)
+            total_years = self.calculate_experience_years(experience_entries, education_entries)
             years_of_exp_object = self.create_years_of_experience_object(candidate.candidate_id, total_years)
             self.db.add(years_of_exp_object)
             
